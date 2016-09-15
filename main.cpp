@@ -4,17 +4,28 @@
 #include <cstring>
 #include <unistd.h>
 #include <bits/sigaction.h>
-#include <signal.h>
+#include <csignal>  // C++ version of <signal.h>
 #include <cerrno>   // C++ version of <errno.h>
 #include <wait.h>
+#include <arpa/inet.h>
+#include <sstream>
 
-#define BACKLOG 5
+const int BACKLOG{5};
+const int MAXDATASIZE{300};
 
 void sigchld_handler(int s) {
     // waitpid() might overwrite errno, so we save and restore it:
     int saved_errno = errno;
     while(waitpid(-1, NULL, WNOHANG) > 0);
     errno = saved_errno;
+}
+
+// get sockaddr, IPv4 or IPv6:
+void *get_in_addr(struct sockaddr *sa) {
+    if (sa->sa_family == AF_INET) {
+        return &(((struct sockaddr_in*)sa)->sin_addr);
+    }
+    return &(((struct sockaddr_in6*)sa)->sin6_addr);
 }
 
 int main(int argc, const char *argv[]) {
@@ -25,6 +36,8 @@ int main(int argc, const char *argv[]) {
     int yes{1};
     const char *PORT;
     struct sigaction sa;
+    socklen_t sin_size;
+    char s[INET6_ADDRSTRLEN];
 
     // Error control for the inputs
     if (argc != 2) {
@@ -90,7 +103,39 @@ int main(int argc, const char *argv[]) {
         exit(1);
     }
 
-    // TODO server loop waiting for connections
+    // Server loop waiting for connections and messages
+    printf("server: waiting for connections...\n");
 
-    return 0;
+    while(1) {
+        sin_size = sizeof their_addr;
+        transfd = accept(sockfd, (struct sockaddr *)&their_addr, &sin_size);
+        if (transfd == -1) {
+            perror("accept");
+            continue;
+        }
+
+        inet_ntop(their_addr.ss_family, get_in_addr((struct sockaddr *)&their_addr), s, sizeof s);
+        printf("server: got connection from %s\n", s);
+
+        // Now we got a connection! Let's try to receive a message
+        std::stringstream incomingMessage;
+        long numBytes{MAXDATASIZE};
+        char buffer[MAXDATASIZE];
+
+        // If the message is too long we're going to keep receiving small parts until it's done
+        while (numBytes >= MAXDATASIZE - 1) {
+            memset(&buffer, 0, MAXDATASIZE);
+            if ((numBytes = recv(transfd, buffer, (MAXDATASIZE - 1), 0)) == -1) {
+                perror("recv");
+                exit(1);
+            }
+            incomingMessage << buffer;
+        }
+        printf("the message is: '%s'\n", incomingMessage.str().c_str());
+
+        close(transfd);
+
+        // And the server waits looking for another connection
+        // break;
+    }
 }
