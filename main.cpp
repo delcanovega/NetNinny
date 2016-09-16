@@ -19,13 +19,29 @@ int main(int argc, const char *argv[]) {
         // TODO create a class 'Socket' that encapsulates the common features
         Socket connectionSocket;
 
-        // TODO Bind the socket
+        if (!connectionSocket.bind(PORT)) {
+            // ...
+        }
 
-        // TODO Listen
+        if (!connectionSocket.listen()) {
+            // ...
+        }
 
-        // TODO Accept loop
+        printf("Server: Listening on port '%s' waiting for connections...\n", PORT);
 
-            // TODO Recieve message
+        while (1) {
+
+            if (!connectionSocket.accept()) {
+                // ...
+            }
+
+            // get message from the client to the proxy
+            std::string clientSearch;
+            if (!connectionSocket.fromClientToProxy(clientSearch)) {
+                // ...
+            }
+            printf("Server: Browser search: %s\n", clientSearch.c_str());
+        }
 
         // TODO Close connections
     }
