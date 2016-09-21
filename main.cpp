@@ -8,7 +8,9 @@
 #include "Socket.h"
 
 void execute(Socket& clientSocket);
-bool getHost(const std::string header, std::string& host);
+bool getHost(const std::string& header, std::string& host);
+std::string handleHeader(const std::string& header, const std::string& host);
+bool hasContent(const std::string& header);
 
 
 int main(int argc, const char *argv[]) {
@@ -65,7 +67,7 @@ void execute(Socket& clientSocket) {
         printf("ERROR: in execute(). Unable to get the HTTP header.\n");
         return;
     }
-    printf("[ NetNinny ]: Received header '%s'.\n", header.c_str());
+    printf("[ NetNinny ]: Received header:\n%s\n", header.c_str());
 
     // Filter
 
@@ -83,10 +85,15 @@ void execute(Socket& clientSocket) {
     }
 
     // Modify header
+    header = handleHeader(header, host);
+    printf("[ NetNinny ]: Modified header:\n%s\n", header.c_str());
+    if (hasContent(header)) {
+        // Handle content
+    }
 
 }
 
-bool getHost(const std::string header, std::string& host) {
+bool getHost(const std::string& header, std::string& host) {
     std::string goal{"Host: "};
     long goalIndex{header.find(goal)};
     if (goalIndex == std::string::npos) {
@@ -102,7 +109,7 @@ bool getHost(const std::string header, std::string& host) {
     return true;
 }
 
-std::string handleHeader(const std::string header, const std::string host) {
+std::string handleHeader(const std::string& header, const std::string& host) {
     std::string handledHeader{header};
     std::string goal{"GET http://" + host};
     unsigned long index{host.find(goal)};
@@ -132,4 +139,21 @@ std::string handleHeader(const std::string header, const std::string host) {
     handledHeader = prefix + "Connection: close" + sufix;
 
     return handledHeader;
+}
+
+bool hasContent(const std::string& header) {
+    std::string goal{"Content-Length: "};
+    long index{header.find(goal)};
+
+    if (index != std::string::npos) {
+        char value{header[index + goal.size()]};
+        if (value == '0') {
+            return false;
+        }
+        else {
+            return true;
+        }
+    }
+
+    return false;
 }
