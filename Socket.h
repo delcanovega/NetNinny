@@ -23,6 +23,7 @@ public:
     void close();
     bool getHeader(std::string& header);
     bool connect(const char* hostname);
+    bool sendHeader(const std::string& header);
 
 private:
 

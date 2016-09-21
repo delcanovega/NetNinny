@@ -87,9 +87,16 @@ void execute(Socket& clientSocket) {
     // Modify header
     header = handleHeader(header, host);
     printf("[ NetNinny ]: Modified header:\n%s\n", header.c_str());
+
+    // Send to server
+    serverSocket.sendHeader(header);
+
+    // Has content?
     if (hasContent(header)) {
         // Handle content
     }
+
+
 
 }
 

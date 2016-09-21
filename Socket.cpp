@@ -178,3 +178,16 @@ bool Socket::connect(const char *hostname) {
 
     return true;
 }
+
+bool Socket::sendHeader(const std::string &header) {
+    bool status{false};
+    if (this->fileDescriptor != -1) {
+        if (send(fileDescriptor, header.c_str(), header.size(), 0) == -1) {
+            perror("ERROR: in send() inside sendHeader().\n");
+        }
+        else {
+            status = true;
+        }
+    }
+    return status;
+}
