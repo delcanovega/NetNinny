@@ -6,6 +6,7 @@
 #include <cstring>
 #include <cstdio>
 #include <arpa/inet.h>
+#include <zconf.h>
 
 #include "Socket.h"
 
@@ -25,21 +26,21 @@ bool Socket::bind(const char *port) {
         fprintf(stderr, "ERROR in call 'getAddrInfo': %s\n", gai_strerror(result));
         return false;
     }
-    
+
     // Now we have to "run the list" trying to make a connection
     for (p = servInfo; p != NULL ; p->ai_next) {
-        if ((clientFD = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1) {
-            perror("ERROR in call 'socket'\n");
+        if ((fileDescriptor = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1) {
+            perror("[*] Socket error: in call 'socket'\n");
             continue;
         }
 
-        if (setsockopt(clientFD, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) == -1) {
+        if (setsockopt(fileDescriptor, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) == -1) {
             perror("ERROR in call 'setSockOpt'\n");
             return false;
         }
 
-        if (::bind(clientFD, p->ai_addr, p->ai_addrlen) == -1) {
-            // TODO this.close(clientFD);
+        if (::bind(fileDescriptor, p->ai_addr, p->ai_addrlen) == -1) {
+            this->close();
             perror("Failed to bind, trying to reconnect...\n");
             continue;
         }
@@ -58,26 +59,27 @@ bool Socket::bind(const char *port) {
 }
 
 bool Socket::listen() {
-    if (::listen(clientFD, backlog) == -1) {
+    if (::listen(fileDescriptor, backlog) == -1) {
         perror("ERROR in call 'listen'\n");
         return false;
     }
     return true;
 }
 
-bool Socket::accept() {
+int Socket::accept() {
+    int serverFD;
     socklen_t addrSize = sizeof theirAddr;  // Not very sure how theirAddr works...
 
-    if ((serverFD = ::accept(clientFD, (struct sockaddr *)&theirAddr, &addrSize)) == -1) {
+    if ((serverFD = ::accept(fileDescriptor, (struct sockaddr *)&theirAddr, &addrSize)) == -1) {
         perror("ERROR in the call 'accept'\n");
-        return false;
+    }
+    else {
+        char readableIP[INET6_ADDRSTRLEN];
+        inet_ntop(theirAddr.ss_family, get_in_addr((struct sockaddr *)&theirAddr), readableIP, sizeof readableIP);
+        printf("[ SOCKET ]: Connection established with IP: '%s'\n", readableIP);
     }
 
-    char readableIP[INET6_ADDRSTRLEN];
-    inet_ntop(theirAddr.ss_family, get_in_addr((struct sockaddr *)&theirAddr), readableIP, sizeof readableIP);
-    printf("Server: Connection established with '%s'\n", readableIP);
-
-    return true;
+    return serverFD;
 }
 
 // Beej's code, get sockaddr, IPv4 or IPv6:
@@ -90,19 +92,89 @@ void* Socket::get_in_addr(struct sockaddr *sa) {
     return &(((struct sockaddr_in6*)sa)->sin6_addr);
 }
 
-bool Socket::fromClientToProxy(std::string &str) {
-    str = "";
-    char buffer[512];
+void Socket::setFD(int fd) {
+    fileDescriptor = fd;
+}
 
-    long byteCount{recv(clientFD, buffer, sizeof buffer, 0)};
-    if (byteCount == -1) {
-        perror("ERROR in call 'recv' (from client to proxy)\n");
+void Socket::close() {
+    if (fileDescriptor != -1) {
+        ::close(fileDescriptor);
+        setFD(-1);
+    }
+}
+
+bool Socket::getHeader(std::string &header) {
+    size_t headerMaxSize{8192};  // 8K or 16K should be good enough according to stackOverflow
+    long numBytes;
+    char buffer[headerMaxSize];
+
+    memset(&buffer, 0, headerMaxSize);
+    if ((numBytes = recv(fileDescriptor, buffer, headerMaxSize, MSG_PEEK)) == -1) {
+        perror("ERROR: first recv() inside getHeader()");
         return false;
     }
-    printf("recv()'d %ld bytes of data in buffer\n", byteCount);
 
-    std::string tmp(buffer, byteCount);
-    str.append(tmp);
+    std::string str(buffer, numBytes);
+    unsigned long headerLenght{str.find("\r\n\r\n") + 4};
+    if (headerLenght > (numBytes + 4)) {
+        printf("HTTP header not found.\n");
+        return false;
+    }
+
+    char buf[headerLenght + 1];
+    memset(&buf, 0, headerLenght + 1);
+    if ((numBytes = recv(fileDescriptor, buf, headerLenght, 0)) == -1) {
+        perror("ERROR: second recv() inside getHeader()");
+        return false;
+    }
+
+    header.clear();
+    std::string tmp(buf, numBytes);
+    header.append(tmp);
+    return true;
+}
+
+bool Socket::connect(const char *hostname) {
+    struct addrinfo hints, *servInfo, *p;
+    int result;
+
+    // Preparation
+    memset(&hints, 0, sizeof hints);
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_flags = AI_PASSIVE;  // My IP
+
+    if ((result = getaddrinfo(hostname, "http" , &hints, &servInfo)) != 0) {
+        fprintf(stderr, "ERROR in call 'getAddrInfo': %s\n", gai_strerror(result));
+        return false;
+    }
+
+    // Now we have to "run the list" trying to make a connection
+    for (p = servInfo; p != NULL ; p->ai_next) {
+        if ((fileDescriptor = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1) {
+            perror("[*] Socket error: in call 'socket'\n");
+            continue;
+        }
+
+        if (::connect(fileDescriptor, p->ai_addr, p->ai_addrlen) == -1) {
+            this->close();
+            perror("Failed to bind, trying to reconnect...\n");
+            continue;
+        }
+
+        break;  // If we're here the connect is done
+    }
+
+    if (p == NULL) {
+        fprintf(stderr, "Unable to connect with the host\n");
+        return false;
+    }
+
+    char readableIP[INET6_ADDRSTRLEN];
+    inet_ntop(p->ai_family, get_in_addr((struct sockaddr*)p->ai_addr), readableIP, sizeof readableIP);
+    printf("[ NetNinny ]: Connection established with the host: '%s'\n", readableIP);
+
+    freeaddrinfo(servInfo);  // To prevent memory leaks
 
     return true;
 }

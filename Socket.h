@@ -10,8 +10,7 @@
 
 class Socket {
 
-    int clientFD;
-    int serverFD;
+    int fileDescriptor;
     int backlog;
     struct sockaddr_storage theirAddr;
 
@@ -19,8 +18,11 @@ public:
 
     bool bind(const char* port);
     bool listen();
-    bool accept();
-    bool fromClientToProxy(std::string& str);
+    int accept();
+    void setFD(int fd);
+    void close();
+    bool getHeader(std::string& header);
+    bool connect(const char* hostname);
 
 private:
 
