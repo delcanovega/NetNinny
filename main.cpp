@@ -101,3 +101,35 @@ bool getHost(const std::string header, std::string& host) {
     host = header.substr(hostIndex, lenght);
     return true;
 }
+
+std::string handleHeader(const std::string header, const std::string host) {
+    std::string handledHeader{header};
+    std::string goal{"GET http://" + host};
+    unsigned long index{host.find(goal)};
+    if (index != std::string::npos) {
+        // If we can't find it we try to reconstruct it
+        handledHeader = "GET " + host.substr(goal.length());
+    }
+
+    goal.clear();
+    goal = "Proxy-Connection";
+    index = handledHeader.find(goal);
+    if (index == std::string::npos) {
+        goal.clear();
+        goal = "Connection: ";
+        index = handledHeader.find(goal);
+        if (index == std::string::npos) {
+            return handledHeader;
+        }
+    }
+
+    // Change the connection value from 'keep-alive' to 'close'
+    long lenght{handledHeader.find("\r", index)};  // [index, "\r")
+    lenght -= index;                               // [0, "\r" - index)
+    std::string prefix{handledHeader.substr(0, index)};
+    std::string sufix{handledHeader.substr(index + lenght, handledHeader.size())};
+    handledHeader.clear();
+    handledHeader = prefix + "Connection: close" + sufix;
+
+    return handledHeader;
+}
