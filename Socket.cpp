@@ -28,7 +28,7 @@ bool Socket::bind(const char *port) {
     }
 
     // Now we have to "run the list" trying to make a connection
-    for (p = servInfo; p != NULL ; p->ai_next) {
+    for (p = servInfo; p != NULL ; p = p->ai_next) {
         if ((fileDescriptor = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1) {
             perror("[*] Socket error: in call 'socket'\n");
             continue;
