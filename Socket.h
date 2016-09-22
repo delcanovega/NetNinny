@@ -10,10 +10,6 @@
 
 class Socket {
 
-    int fileDescriptor;
-    int backlog;
-    struct sockaddr_storage theirAddr;
-
 public:
 
     bool bind(const char* port);
@@ -24,10 +20,18 @@ public:
     bool getHeader(std::string& header);
     bool connect(const char* hostname);
     bool sendHeader(const std::string& header);
+    size_t getMaxSize() const;
+    long receivePacket(char* packet) const;
+    long sendPacket(char* packet, long numBytes) const;
 
 private:
 
     void *get_in_addr(struct sockaddr *sa);
+
+    int fileDescriptor;
+    int backlog;
+    size_t maxSize{4096};
+    struct sockaddr_storage theirAddr;
 
 };
 

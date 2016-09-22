@@ -191,3 +191,15 @@ bool Socket::sendHeader(const std::string &header) {
     }
     return status;
 }
+
+size_t Socket::getMaxSize() const {
+    return this->maxSize;
+}
+
+long Socket::receivePacket(char *packet) const {
+    return (recv(fileDescriptor, packet, getMaxSize(), 0));
+}
+
+long Socket::sendPacket(char* packet, long numBytes) const {
+    return (send(fileDescriptor, packet, numBytes, 0));
+}

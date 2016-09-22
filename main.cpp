@@ -4,6 +4,7 @@
 
 #include <cstdio>
 #include <zconf.h>
+#include <cstring>
 
 #include "Socket.h"
 
@@ -11,6 +12,7 @@ void execute(Socket& clientSocket);
 bool getHost(const std::string& header, std::string& host);
 std::string handleHeader(const std::string& header, const std::string& host);
 bool hasContent(const std::string& header);
+void deliverContent(const Socket& from, const Socket& to);
 
 
 int main(int argc, const char *argv[]) {
@@ -67,9 +69,10 @@ void execute(Socket& clientSocket) {
         printf("ERROR: in execute(). Unable to get the HTTP header.\n");
         return;
     }
-    printf("[ NetNinny ]: Received header:\n%s\n", header.c_str());
+    printf("[ NetNinny ]: Received header from the browser:\n%s\n", header.c_str());
 
-    // Filter
+    // TODO: Filter
+    // ...
 
     // Get the host from the header
     std::string host;
@@ -86,15 +89,35 @@ void execute(Socket& clientSocket) {
 
     // Modify header
     header = handleHeader(header, host);
-    printf("[ NetNinny ]: Modified header:\n%s\n", header.c_str());
+    printf("[ NetNinny ]: Modified header sent to the server:\n%s\n", header.c_str());
 
     // Send to server
     serverSocket.sendHeader(header);
 
     // Has content?
     if (hasContent(header)) {
-        // Handle content
+        deliverContent(clientSocket, serverSocket);
     }
+
+    if (!serverSocket.getHeader(header)) {
+        printf("ERROR: in execute(). Invalid HTTP header.\n");
+        return;
+    }
+    printf("[ NetNinny ]: Received header from the server:\n%s\n", header.c_str());
+
+    // TODO: Filter again
+    // ...
+
+    // Send to browser
+    clientSocket.sendHeader(header);
+
+    // Has content?
+    if (hasContent(header)) {
+        deliverContent(serverSocket, clientSocket);
+    }
+
+    // TODO: Close connections
+    // ...
 
 
 
@@ -163,4 +186,30 @@ bool hasContent(const std::string& header) {
     }
 
     return false;
+}
+
+void deliverContent(const Socket& from, const Socket& to) {
+    bool inCourse{true};
+    long bytesMoved{-1};
+    char* packet = new char[from.getMaxSize()];
+
+    while (inCourse) {
+        memset(packet, 0, from.getMaxSize());
+
+        bytesMoved = from.receivePacket(packet);
+        if (bytesMoved == -1) {
+            perror("ERROR: in receivePacket() inside deliverContent().\n");
+            inCourse = false;
+        }
+        else if (bytesMoved == 0) {
+            inCourse = false;
+        }
+        else {
+            bytesMoved = to.sendPacket(packet, bytesMoved);
+            if (bytesMoved == -1) {
+                perror("ERROR: in sendPacket() inside deliverContent().\n");
+                inCourse = false;
+            }
+        }
+    }
 }
