@@ -203,3 +203,19 @@ long Socket::receivePacket(char *packet) const {
 long Socket::sendPacket(char* packet, long numBytes) const {
     return (send(fileDescriptor, packet, numBytes, 0));
 }
+
+bool Socket::receiveTextData(std::string& data) {
+    long bytesMoved{getMaxSize()};
+    char buffer[bytesMoved];
+
+    while (bytesMoved != 0) {
+        memset(buffer, 0, getMaxSize());
+        if ((bytesMoved = recv(fileDescriptor, buffer, getMaxSize(), 0)) == -1) {
+            perror("ERROR: receiving data in receiveTextData()\n");
+            return false;
+        }
+        std::string tmp(buffer, bytesMoved);
+        data.append(tmp);
+    }
+    return true;
+}

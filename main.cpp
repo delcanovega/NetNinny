@@ -10,6 +10,8 @@
 
 const std::string BLACKLIST[]{"SpongeBob", "Britney Spears", "Paris Hilton", "Norrk??ping"};
 const std::string BAD_URL{"HTTP/1.1 302 Found\r\nLocation: http://www.ida.liu.se/~TDTS04/labs/2011/ass2/error1.html\r\n\r\n"};
+const std::string BAD_CNT{"HTTP/1.1 302 Found\r\nLocation: http://www.ida.liu.se/~TDTS04/labs/2011/ass2/error2.html\r\n\r\n"};
+
 
 void execute(Socket& clientSocket);
 bool getHost(const std::string& header, std::string& host);
@@ -18,6 +20,8 @@ bool hasContent(const std::string& header);
 void deliverContent(const Socket& from, const Socket& to);
 std::string getRequest(const std::string& header);
 bool hasIllegalContents(const std::string& str, const std::string bannedWords[]);
+bool hasTextToFilter(const std::string& header);
+std::string getContent(const std::string& header);
 
 int main(int argc, const char *argv[]) {
 
@@ -116,8 +120,17 @@ void execute(Socket& clientSocket) {
     }
     printf("[ NetNinny ]: Received header from the server:\n%s\n", header.c_str());
 
-    // TODO: Filter again
-    // ...
+    // Filter again
+    if (hasTextToFilter(header)) {
+        std::string data;
+        if (serverSocket.receiveTextData(data)) {
+            if (hasIllegalContents(data, BLACKLIST)) {
+                printf("[ NetNinny ]: Bad content detected, redirecting...\n");
+                clientSocket.sendHeader(BAD_CNT);
+                return;
+            }
+        }
+    }
 
     // Send to browser
     clientSocket.sendHeader(header);
@@ -142,11 +155,11 @@ bool getHost(const std::string& header, std::string& host) {
     }
 
     unsigned long hostIndex{goalIndex + goal.size()};    // From this position on the host name starts
-    unsigned long lenght{header.find("\r", hostIndex)};  // [0, '\r')
-    lenght -= hostIndex;                                 // [hostStarts, '\r')
+    unsigned long length{header.find("\r", hostIndex)};  // [0, '\r')
+    length -= hostIndex;                                 // [hostStarts, '\r')
 
     host.clear();
-    host = header.substr(hostIndex, lenght);
+    host = header.substr(hostIndex, length);
     return true;
 }
 
@@ -241,3 +254,29 @@ bool hasIllegalContents(const std::string& str, const std::string bannedWords[])
     }
     return false;
 }
+
+bool hasTextToFilter(const std::string& header) {
+    // We only want to filter text files
+    std::string goal{"Content-Type: text"};
+    unsigned long index{header.find(goal)};
+
+    if (index != std::string::npos) {
+        goal = "gzip";  // Compressed files are too much for us
+        index = header.find(goal);
+        if (index == std::string::npos)
+            return true;  // So if it's text and it's not compressed, we can handle it
+    }
+
+    return false;
+}
+
+std::string getContent(const std::string& header) {
+    std::string str;
+    unsigned long index{header.find("\r\n\r\n")};
+    if (header.find("html", index + 4) != std::string::npos) {
+        str = header.substr(index + 4);
+    }
+
+    return str;
+}
+
