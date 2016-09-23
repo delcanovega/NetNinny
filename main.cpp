@@ -8,7 +8,7 @@
 
 #include "Socket.h"
 
-const std::string BLACKLIST[]{"SpongeBob", "Britney Spears", "Paris Hilton", "Norrk??ping"};
+const std::string BLACKLIST[]{"SpongeBob", "Britney Spears", "Paris Hilton", "Norrkoping"};
 const std::string BAD_URL{"HTTP/1.1 302 Found\r\nLocation: http://www.ida.liu.se/~TDTS04/labs/2011/ass2/error1.html\r\n\r\n"};
 const std::string BAD_CNT{"HTTP/1.1 302 Found\r\nLocation: http://www.ida.liu.se/~TDTS04/labs/2011/ass2/error2.html\r\n\r\n"};
 
@@ -79,7 +79,7 @@ void execute(Socket& clientSocket) {
     }
     printf("[ NetNinny ]: Received header from the browser:\n%s\n", header.c_str());
 
-    /*
+
     // Filter the GET request
     std::string request{getRequest(header)};
     if (hasIllegalContents(request, BLACKLIST)) {
@@ -87,7 +87,7 @@ void execute(Socket& clientSocket) {
         printf("[ NetNinny ]: Bad URL detected, redirecting...\n");
         clientSocket.sendHeader(BAD_URL);
         return;
-    }*/
+    }
 
     // Get the host from the header
     std::string host;
@@ -140,10 +140,9 @@ void execute(Socket& clientSocket) {
         deliverContent(serverSocket, clientSocket);
     }
 
-    // TODO: Close connections
-    // ...
-
-
+    // Close connections
+    clientSocket.close();
+    serverSocket.close();
 
 }
 

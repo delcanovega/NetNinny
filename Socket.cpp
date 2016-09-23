@@ -205,7 +205,7 @@ long Socket::sendPacket(char* packet, long numBytes) const {
 }
 
 bool Socket::receiveTextData(std::string& data) {
-    long bytesMoved{getMaxSize()};
+    unsigned long bytesMoved{getMaxSize()};
     char buffer[bytesMoved];
 
     while (bytesMoved != 0) {
