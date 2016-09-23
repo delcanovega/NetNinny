@@ -5,10 +5,11 @@
 #include <cstdio>
 #include <zconf.h>
 #include <cstring>
+#include <vector>
 
 #include "Socket.h"
 
-const std::string BLACKLIST[]{"SpongeBob", "Britney Spears", "Paris Hilton", "Norrkoping"};
+const std::vector<std::string> BLACKLIST{"SpongeBob", "Britney Spears", "Paris Hilton", "Norrkoping"};
 const std::string BAD_URL{"HTTP/1.1 302 Found\r\nLocation: http://www.ida.liu.se/~TDTS04/labs/2011/ass2/error1.html\r\n\r\n"};
 const std::string BAD_CNT{"HTTP/1.1 302 Found\r\nLocation: http://www.ida.liu.se/~TDTS04/labs/2011/ass2/error2.html\r\n\r\n"};
 
@@ -19,9 +20,10 @@ std::string handleHeader(const std::string& header, const std::string& host);
 bool hasContent(const std::string& header);
 void deliverContent(const Socket& from, const Socket& to);
 std::string getRequest(const std::string& header);
-bool hasIllegalContents(const std::string& str, const std::string bannedWords[]);
+bool hasIllegalContents(const std::string& str, const std::vector<std::string> bannedWords);
 bool hasTextToFilter(const std::string& header);
 std::string getContent(const std::string& header);
+void preventDoubleURL(std::string& header);
 
 int main(int argc, const char *argv[]) {
 
@@ -85,8 +87,8 @@ void execute(Socket& clientSocket) {
     if (hasIllegalContents(request, BLACKLIST)) {
         // If we pick up an illegal URL, then we skip the rest of the process and redirect the error page
         printf("[ NetNinny ]: Bad URL detected, redirecting...\n");
-        clientSocket.sendHeader(BAD_URL);
-        return;
+        // FIXME: What next?
+        //clientSocket.sendHeader(BAD_URL);
     }
 
     // Get the host from the header
@@ -127,8 +129,12 @@ void execute(Socket& clientSocket) {
             if (hasIllegalContents(data, BLACKLIST)) {
                 printf("[ NetNinny ]: Bad content detected, redirecting...\n");
                 clientSocket.sendHeader(BAD_CNT);
+                // FIXME: What next?
                 return;
             }
+        }
+        else {
+            //TODO: Send the data
         }
     }
 
@@ -245,9 +251,9 @@ std::string getRequest(const std::string& header) {
     return header.substr(0, end);
 }
 
-bool hasIllegalContents(const std::string& str, const std::string bannedWords[]) {
-    for (unsigned int i{0}; i < bannedWords->size(); ++i) {
-        unsigned long result{str.find(bannedWords[i])};
+bool hasIllegalContents(const std::string& str, const std::vector<std::string> bannedWords) {
+    for (unsigned int i{0}; i < bannedWords.size(); ++i) {
+        unsigned long result{str.find(bannedWords.at(i))};
         if (result != std::string::npos)
             return true;
     }
@@ -278,4 +284,3 @@ std::string getContent(const std::string& header) {
 
     return str;
 }
-
