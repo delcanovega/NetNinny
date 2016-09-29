@@ -1,12 +1,7 @@
-//
-// Created by jdelcano on 2016-09-15.
-//
-
-#include <netdb.h>
-#include <cstring>
-#include <cstdio>
-#include <arpa/inet.h>
-#include <zconf.h>
+/*
+ * The Socket class encapsulates a few of the standard socket programming
+ * functions and wrap them with some error handling for commodity
+ */
 
 #include "Socket.h"
 
@@ -23,29 +18,29 @@ bool Socket::bind(const char *port) {
     hints.ai_flags = AI_PASSIVE;  // My IP
 
     if ((result = getaddrinfo(NULL, port, &hints, &servInfo)) != 0) {
-        fprintf(stderr, "ERROR in call 'getAddrInfo': %s\n", gai_strerror(result));
+        fprintf(stderr, "[!] ERROR in call 'getAddrInfo': %s\n", gai_strerror(result));
         return false;
     }
 
     // Now we have to "run the list" trying to make a connection
     for (p = servInfo; p != NULL ; p = p->ai_next) {
-        if ((fileDescriptor = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1) {
-            perror("[*] Socket error: in call 'socket'\n");
+        if ((file_descriptor = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1) {
+            perror("[!] ERROR in call 'socket'\n");
             continue;
         }
 
-        if (setsockopt(fileDescriptor, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) == -1) {
-            perror("ERROR in call 'setSockOpt'\n");
+        if (setsockopt(file_descriptor, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) == -1) {
+            perror("[!] ERROR in call 'setSockOpt'\n");
             return false;
         }
 
-        if (::bind(fileDescriptor, p->ai_addr, p->ai_addrlen) == -1) {
+        if (::bind(file_descriptor, p->ai_addr, p->ai_addrlen) == -1) {
             this->close();
-            perror("Failed to bind, trying to reconnect...\n");
+            perror("[!] ERROR: Failed to bind, trying to reconnect...\n");
             continue;
         }
 
-        break;  // If we're here the binding is done
+        break;  // If we're here probably the binding is done
     }
 
     if (p == NULL) {
@@ -59,27 +54,28 @@ bool Socket::bind(const char *port) {
 }
 
 bool Socket::listen() {
-    if (::listen(fileDescriptor, backlog) == -1) {
-        perror("ERROR in call 'listen'\n");
+    if (::listen(file_descriptor, backlog) == -1) {
+        perror("[!] ERROR in call 'listen'\n");
         return false;
     }
     return true;
 }
 
-int Socket::accept() {
-    int serverFD;
-    socklen_t addrSize = sizeof theirAddr;  // Not very sure how theirAddr works...
+int Socket::accept(bool debug) {
+    int server_fd;
+    socklen_t addr_size = sizeof their_addr;
 
-    if ((serverFD = ::accept(fileDescriptor, (struct sockaddr *)&theirAddr, &addrSize)) == -1) {
-        perror("ERROR in the call 'accept'\n");
+    if ((server_fd = ::accept(file_descriptor, (struct sockaddr *)&their_addr, &addr_size)) == -1) {
+        perror("[!] ERROR in the call 'accept'\n");
     }
     else {
         char readableIP[INET6_ADDRSTRLEN];
-        inet_ntop(theirAddr.ss_family, get_in_addr((struct sockaddr *)&theirAddr), readableIP, sizeof readableIP);
-        //printf("[ SOCKET ]: Connection established with IP: '%s'\n", readableIP);
+        inet_ntop(their_addr.ss_family, get_in_addr((struct sockaddr *)&their_addr), readableIP, sizeof readableIP);
+        if (debug)
+            printf("[ NetNinny ]: Connection established with IP: '%s'\n", readableIP);
     }
 
-    return serverFD;
+    return server_fd;
 }
 
 // Beej's code, get sockaddr, IPv4 or IPv6:
@@ -92,49 +88,45 @@ void* Socket::get_in_addr(struct sockaddr *sa) {
     return &(((struct sockaddr_in6*)sa)->sin6_addr);
 }
 
-void Socket::setFD(int fd) {
-    fileDescriptor = fd;
-}
-
 void Socket::close() {
-    if (fileDescriptor != -1) {
-        ::close(fileDescriptor);
-        setFD(-1);
+    if (file_descriptor != -1) {
+        ::close(file_descriptor);
+        set_fd(-1);
     }
 }
 
-bool Socket::getHeader(std::string &header) {
-    size_t headerMaxSize{8192};  // 8K or 16K should be good enough according to stackOverflow
-    long numBytes;
-    char buffer[headerMaxSize];
+bool Socket::get_header(std::string &header) {
+    size_t header_max_size{8192};  // 8K or 16K should be good enough according to stackOverflow
+    long num_bytes;
+    char buffer[header_max_size];
 
-    memset(&buffer, 0, headerMaxSize);
-    if ((numBytes = recv(fileDescriptor, buffer, headerMaxSize, MSG_PEEK)) == -1) {
-        perror("ERROR: first recv() inside getHeader()");
+    memset(&buffer, 0, header_max_size);
+    if ((num_bytes = recv(file_descriptor, buffer, header_max_size, MSG_PEEK)) == -1) {
+        perror("[!] ERROR: first recv() inside get_header()");
         return false;
     }
 
-    std::string str(buffer, numBytes);
-    unsigned long headerLenght{str.find("\r\n\r\n") + 4};
-    if (headerLenght > (numBytes + 4)) {
+    std::string str(buffer, num_bytes);
+    unsigned long header_lenght{str.find("\r\n\r\n") + 4};
+    if (header_lenght > (num_bytes + 4)) {
         printf("HTTP header not found.\n");
         return false;
     }
 
-    char buf[headerLenght + 1];
-    memset(&buf, 0, headerLenght + 1);
-    if ((numBytes = recv(fileDescriptor, buf, headerLenght, 0)) == -1) {
-        perror("ERROR: second recv() inside getHeader()");
+    char buf[header_lenght + 1];
+    memset(&buf, 0, header_lenght + 1);
+    if ((num_bytes = recv(file_descriptor, buf, header_lenght, 0)) == -1) {
+        perror("[!] ERROR: second recv() inside get_header()");
         return false;
     }
 
     header.clear();
-    std::string tmp(buf, numBytes);
+    std::string tmp(buf, num_bytes);
     header.append(tmp);
     return true;
 }
 
-bool Socket::connect(const char *hostname) {
+bool Socket::connect(const char *hostname, bool debug) {
     struct addrinfo hints, *servInfo, *p;
     int result;
 
@@ -145,18 +137,18 @@ bool Socket::connect(const char *hostname) {
     hints.ai_flags = AI_PASSIVE;  // My IP
 
     if ((result = getaddrinfo(hostname, "http" , &hints, &servInfo)) != 0) {
-        fprintf(stderr, "ERROR in call 'getAddrInfo': %s\n", gai_strerror(result));
+        fprintf(stderr, "[!] ERROR in call 'getAddrInfo': %s\n", gai_strerror(result));
         return false;
     }
 
     // Now we have to "run the list" trying to make a connection
     for (p = servInfo; p != NULL ; p->ai_next) {
-        if ((fileDescriptor = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1) {
+        if ((file_descriptor = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1) {
             perror("[*] Socket error: in call 'socket'\n");
             continue;
         }
 
-        if (::connect(fileDescriptor, p->ai_addr, p->ai_addrlen) == -1) {
+        if (::connect(file_descriptor, p->ai_addr, p->ai_addrlen) == -1) {
             this->close();
             perror("Failed to bind, trying to reconnect...\n");
             continue;
@@ -170,20 +162,21 @@ bool Socket::connect(const char *hostname) {
         return false;
     }
 
-    char readableIP[INET6_ADDRSTRLEN];
-    inet_ntop(p->ai_family, get_in_addr((struct sockaddr*)p->ai_addr), readableIP, sizeof readableIP);
-    //printf("[ NetNinny ]: Connection established with the host: '%s'\n", readableIP);
+    char readable_ip[INET6_ADDRSTRLEN];
+    inet_ntop(p->ai_family, get_in_addr((struct sockaddr*)p->ai_addr), readable_ip, sizeof readable_ip);
+    if (debug)
+        printf("[ NetNinny ]: Connection established with the host: '%s'\n", readable_ip);
 
     freeaddrinfo(servInfo);  // To prevent memory leaks
 
     return true;
 }
 
-bool Socket::sendHeader(const std::string &header) {
+bool Socket::send_header(const std::string &header) {
     bool status{false};
-    if (this->fileDescriptor != -1) {
-        if (send(fileDescriptor, header.c_str(), header.size(), 0) == -1) {
-            perror("ERROR: in send() inside sendHeader().\n");
+    if (this->file_descriptor != -1) {
+        if (send(file_descriptor, header.c_str(), header.size(), 0) == -1) {
+            perror("[!] ERROR: in send() inside send_header().\n");
         }
         else {
             status = true;
@@ -192,34 +185,32 @@ bool Socket::sendHeader(const std::string &header) {
     return status;
 }
 
-size_t Socket::getMaxSize() const {
+size_t Socket::get_max_size() const {
     return this->maxSize;
 }
 
-long Socket::receivePacket(char packet) {
-    return (recv(fileDescriptor, &packet, getMaxSize(), 0));
-}
+bool Socket::receive_text_data(std::string &data) {
+    unsigned long bytes_moved{get_max_size()};
+    char buffer[bytes_moved];
 
-long Socket::sendPacket(char packet, long numBytes) {
-    return (send(fileDescriptor, &packet, numBytes, 0));
-}
-
-bool Socket::receiveTextData(std::string& data) {
-    unsigned long bytesMoved{getMaxSize()};
-    char buffer[bytesMoved];
-
-    while (bytesMoved != 0) {
-        memset(buffer, 0, getMaxSize());
-        if ((bytesMoved = recv(fileDescriptor, buffer, getMaxSize(), 0)) == -1) {
-            perror("ERROR: receiving data in receiveTextData()\n");
+    while (bytes_moved != 0) {
+        memset(buffer, 0, get_max_size());
+        if ((bytes_moved = recv(file_descriptor, buffer, get_max_size(), 0)) == -1) {
+            perror("ERROR: receiving data in receive_text_data()\n");
             return false;
         }
-        std::string tmp(buffer, bytesMoved);
+        std::string tmp(buffer, bytes_moved);
         data.append(tmp);
     }
     return true;
 }
 
-int Socket::getFD() {
-    return fileDescriptor;
+// Getters and setters
+
+int Socket::get_fd() {
+    return file_descriptor;
+}
+
+void Socket::set_fd(int fd) {
+    file_descriptor = fd;
 }

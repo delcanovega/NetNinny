@@ -1,220 +1,246 @@
-//
-// Created by jdelcano on 2016-09-15.
-//
+/*
+ * NetNinny:
+ * A proxy that prevents your browser to show contents that might insult your intelligence.
+ * And also Norrköping. Because why not.
+ */
 
-#include <cstdio>
-#include <zconf.h>
-#include <cstring>
 #include <vector>
-//#include <boost/algorithm/string.hpp>
 #include <algorithm>
-#include <string>
 
 #include "Socket.h"
 
+
+// Useful resources
 const std::vector<std::string> BLACKLIST{"spongebob", "britney spears", "paris hilton", "norrköping", "norrkoping"};
 const std::string BAD_URL{"HTTP/1.1 302 Found\r\nLocation: http://www.ida.liu.se/~TDTS04/labs/2011/ass2/error1.html\r\n\r\n"};
 const std::string BAD_CNT{"HTTP/1.1 302 Found\r\nLocation: http://www.ida.liu.se/~TDTS04/labs/2011/ass2/error2.html\r\n\r\n"};
+bool debug{false};
 
 
-void execute(Socket& clientSocket);
-bool getHost(const std::string& header, std::string& host);
-std::string handleHeader(const std::string& header, const std::string& host);
-bool hasContent(const std::string& header);
-void deliverContent(Socket& from, Socket& to);
-std::string getRequest(const std::string& header);
-bool hasIllegalContents(const std::string& str, const std::vector<std::string> bannedWords);
-bool hasTextToFilter(const std::string& header);
-std::string getContent(const std::string& header);
-void preventDoubleURL(std::string& header);
+// FUNCTIONS USED BY THE PROXY:
 
+// The actual "proxy" feature, handles the request and response of the browser and server
+void execute(Socket& client_socket);
+// Extracts a copy of the host part from the full header
+bool get_host(const std::string &header, std::string &host);
+// Modify the header, setting the connection type from 'keep-alive' to 'closed'
+std::string handle_header(const std::string &header, const std::string &host);
+// Checks the content-length field in the header
+bool has_content(const std::string &header);
+// Let's the content flow from one socket to the other
+void deliver_content(Socket &from, Socket &to);
+// Extracts a copy of the GET and HOST field from the header for filtering later
+std::string get_request(const std::string &header);
+// Receives a string and checks if it contains any banned words
+bool has_illegal_contents(const std::string &str, const std::vector<std::string> banned_words);
+// Checks if the type of the content is suitable for filtering
+bool has_text_to_filter(const std::string &header);
+// A function that tries to prevent the duplicate address problem (NOT WORKING)
+void prevent_double_url(std::string &header);
+
+
+// Implementations:
 int main(int argc, const char *argv[]) {
 
-    // We expect to get ONLY the port number from the arguments
+    // We expect to get the port number from the arguments
     const char* PORT;
-    if (argc != 2) {
-        perror("ERROR: Port number didn't found in the arguments vector");
+    if (argc < 2 || argc > 3) {
+        printf("USAGE:         %s PORT\nDEBUG MODE:    %s PORT -d\n", argv[0], argv[0]);
+        return 1;
     }
     else {
         PORT = argv[1];
-
-        // TODO create a class 'Socket' that encapsulates the common features
-        Socket connectionSocket;
-
-        if (!connectionSocket.bind(PORT)) {
-            // ...
+        if (argc == 3) {
+            std::string mode = argv[2];
+            if (mode == "-d")
+                debug = true;
+            else {
+                printf("Unknown argument.\n");
+                printf("USAGE:         %s PORT\nDEBUG MODE:    %s PORT -d\n", argv[0], argv[0]);
+                return 1;
+            }
         }
 
-        if (!connectionSocket.listen()) {
+        // Creates a socket and waits for a connection
+        Socket connection_socket;
+
+        if (!connection_socket.bind(PORT)) {
             // ...
         }
-
-        printf("[ NetNinny ]: Listening on port '%s' waiting for connections...\n", PORT);
+        if (!connection_socket.listen()) {
+            // ...
+        }
+        if (debug)
+            printf("[ NetNinny ]: Listening on port '%s' waiting for connections...\n", PORT);
 
         while (1) {
-            Socket clientSocket;
-            int fileDescriptor;
-            fileDescriptor = connectionSocket.accept();
-            if (fileDescriptor == -1) {
+            Socket client_socket;
+            int file_descriptor;
+            file_descriptor = connection_socket.accept(debug);
+            if (file_descriptor == -1) {
                 continue;
             }
 
-            clientSocket.setFD(fileDescriptor);
+            client_socket.set_fd(file_descriptor);
             // Should be a valid socket
 
             if (!fork()) {
-                connectionSocket.close();
-                execute(clientSocket);  // Here starts the fun!
+                connection_socket.close();
+                execute(client_socket);  // Here starts the fun!
                 exit(EXIT_SUCCESS);
-            }
-
-            else {
-                //sleep(1);
             }
         }
     }
 }
 
-void execute(Socket& clientSocket) {
+void execute(Socket& client_socket) {
+    // - - - - - - - - - - - - - - - - - - - - - -
+    // TRANSITION FROM BROWSER -> PROXY -> SERVER
+    // - - - - - - - - - - - - - - - - - - - - - -
+
     // Get HTTP header
     std::string header;
-    if (!clientSocket.getHeader(header)) {
-        printf("ERROR: in execute(). Unable to get the HTTP header.\n");
+    if (!client_socket.get_header(header)) {
+        perror("[!] ERROR: in execute(). Unable to get the HTTP header.\n");
         return;
     }
-    //printf("[ NetNinny ]: Received header from the browser:\n%s\n", header.c_str());
+    if (debug)
+        printf("[ NetNinny ]: Received header from the browser:\n%s\n", header.c_str());
 
 
-    //preventDoubleURL(header);
     // Filter the GET request
-    std::string request{getRequest(header)};
-    if (hasIllegalContents(request, BLACKLIST)) {
-        // If we pick up an illegal URL, then we skip the rest of the process and redirect the error page
+    std::string request{get_request(header)};
+    if (has_illegal_contents(request, BLACKLIST)) {
+        // If we pick up an illegal URL, then we redirect to the proper error page
         printf("[ NetNinny ]: Bad URL detected, redirecting...\n");
-        // FIXME: What next?
-        clientSocket.sendHeader(BAD_URL);
+        client_socket.send_header(BAD_URL);
     }
+
 
     // Get the host from the header
     std::string host;
-    if (!getHost(header, host)) {
-        printf("ERROR: in execute(). Unable to get the host.\n");
+    if (!get_host(header, host)) {
+        //perror("[!] ERROR: in execute(). Unable to get the host.\n");
+        // Commented because it'n not a real error, sometimes the proxy picks empty host names
         return;
     }
 
+
     // Connect to the host
-    Socket serverSocket;
-    if (!serverSocket.connect(host.c_str())) {
+    Socket server_socket;
+    if (!server_socket.connect(host.c_str(), debug)) {
         // ...
     }
 
+
     // Modify header
-    header = handleHeader(header, host);
-    //printf("[ NetNinny ]: Modified header sent to the server:\n%s\n", header.c_str());
+    header = handle_header(header, host);
+    if (debug)
+        printf("[ NetNinny ]: Modified header sent to the server:\n%s\n", header.c_str());
+
 
     // Send to server
-    serverSocket.sendHeader(header);
-
+    server_socket.send_header(header);
     // Has content?
-    if (hasContent(header)) {
-        deliverContent(clientSocket, serverSocket);
+    if (has_content(header)) {
+        deliver_content(client_socket, server_socket);
     }
 
-    if (!serverSocket.getHeader(header)) {
-      //  printf("ERROR: in execute(). Invalid HTTP header.\n");
+    // - - - - - - - - - - - - - - - - - - - - - -
+    // TRANSITION FROM SERVER -> PROXY -> BROWSER
+    // - - - - - - - - - - - - - - - - - - - - - -
+
+    if (!server_socket.get_header(header)) {
+        perror("[!] ERROR: in execute(). Invalid HTTP header.\n");
         return;
     }
-    // Sometimes the get address is duplicated, lets filter that:
-    //preventDoubleURL(header);
-    //printf("[ NetNinny ]: Received header from the server:\n%s\n", header.c_str());
+    if (debug)
+        printf("[ NetNinny ]: Received header from the server:\n%s\n", header.c_str());
+
 
     // Filter again
-    if (hasTextToFilter(header)) {
+    if (has_text_to_filter(header)) {
         std::string data;
-        if (serverSocket.receiveTextData(data)) {
-            //printf("Data intercepted:\n%s\n", data.c_str());
-            if (hasIllegalContents(data, BLACKLIST)) {
-              //  printf("[ NetNinny ]: Bad content detected, redirecting...\n");
+        if (server_socket.receive_text_data(data)) {
+            if (has_illegal_contents(data, BLACKLIST)) {
+                printf("[ NetNinny ]: Bad content detected, redirecting...\n");
                 header = BAD_CNT;
             }
-            clientSocket.sendHeader(header);
-            //printf("TEST:\n%s\n", header.c_str());
-            //deliverContent(serverSocket, clientSocket);
-            clientSocket.sendHeader(data);
+            client_socket.send_header(header);
+            // As we have already downloaded the content we cannot use the deliver_content() function again, so
+            // we have to send the content as a simple string to the browser. The send_header() function is also
+            // suitable for this purpose.
+            client_socket.send_header(data);
 
         }
     }
     else {
-        clientSocket.sendHeader(header);
-        deliverContent(serverSocket, clientSocket);
+        client_socket.send_header(header);
+        deliver_content(server_socket, client_socket);
     }
 
-    //printf("and it's gone\n");
 
     // Close connections
-    clientSocket.close();
-    serverSocket.close();
+    client_socket.close();
+    server_socket.close();
 
 }
 
-bool getHost(const std::string& header, std::string& host) {
+bool get_host(const std::string &header, std::string &host) {
     std::string goal{"Host: "};
-    unsigned long goalIndex{header.find(goal)};
-    if (goalIndex == std::string::npos) {
+    unsigned long goal_index{header.find(goal)};
+    if (goal_index == std::string::npos) {
         return false;
     }
 
-    unsigned long hostIndex{goalIndex + goal.size()};    // From this position on the host name starts
-    unsigned long length{header.find("\r", hostIndex)};  // [0, '\r')
-    length -= hostIndex;                                 // [hostStarts, '\r')
+    unsigned long host_index{goal_index + goal.size()};   // From this position on the host name starts
+    unsigned long length{header.find("\r", host_index)};  // [0, '\r')
+    length -= host_index;                                 // [hostStarts, '\r')
 
     host.clear();
-    host = header.substr(hostIndex, length);
+    host = header.substr(host_index, length);
     return true;
 }
 
-std::string handleHeader(const std::string& header, const std::string& host) {
-    std::string handledHeader{header};
+std::string handle_header(const std::string &header, const std::string &host) {
+    std::string new_header{header};
     std::string goal{"GET http://" + host};
     unsigned long index{host.find(goal)};
     if (index != std::string::npos) {
-        // If we can't find it we try to reconstruct it
-        handledHeader = "GET " + host.substr(goal.length());
-    }
+        new_header = "GET " + host.substr(goal.length());
+    }  // This might be causing the duplicate directions, not sure
 
+    // Let's change the type of connection from 'keep-alive' to 'close' (if we need to)
     goal.clear();
     goal = "Proxy-Connection";
-    index = handledHeader.find(goal);
+    index = new_header.find(goal);
     if (index == std::string::npos) {
         goal.clear();
         goal = "Connection: ";
-        index = handledHeader.find(goal);
+        index = new_header.find(goal);
         if (index == std::string::npos) {
-            return handledHeader;
+            return new_header;  // In this here there is no need
         }
     }
 
-    // Change the connection value from 'keep-alive' to 'close'
-    unsigned long length{handledHeader.find("\r", index)};  // [index, "\r")
-    length -= index;                               // [0, "\r" - index)
-    std::string prefix{handledHeader.substr(0, index)};
-    std::string sufix{handledHeader.substr(index + length, handledHeader.size())};
-    handledHeader.clear();
-    handledHeader = prefix + "Connection: close" + sufix;
+    unsigned long length{new_header.find("\r", index)};  // [index, "\r")
+    length -= index;                                     // [0, "\r" - index)
+    std::string prefix{new_header.substr(0, index)};
+    std::string suffix{new_header.substr(index + length, new_header.size())};
+    new_header.clear();  // Erases the content of the string
+    new_header = prefix + "Connection: close" + suffix;
 
-    return handledHeader;
+    return new_header;
 }
 
-bool hasContent(const std::string& header) {
+bool has_content(const std::string &header) {
     std::string goal{"Content-Length: "};
     unsigned long index{header.find(goal)};
 
     if (index != std::string::npos) {
-        char value{header[index + goal.size()]};
-        if (value == '0') {
-            return false;
-        }
-        else {
+        // If the first number of the content length is != 0
+        if (header[index + goal.size()] != '0') {
+            // Then there's content!
             return true;
         }
     }
@@ -222,64 +248,62 @@ bool hasContent(const std::string& header) {
     return false;
 }
 
-void deliverContent(Socket& from, Socket& to) {
-    bool inCourse{true};
-    long bytesMoved{-1};
-    char packet[from.getMaxSize()];  // * = new char[from.getMaxSize()];
-    int loop{1};
+void deliver_content(Socket &from, Socket &to) {
+    bool in_course{true};
+    long bytes_moved{-1};
+    char packet[from.get_max_size()];  // It's basically a buffer
 
-    while (inCourse) {
-        memset(packet, 0, from.getMaxSize());
+    // We send fragments until we're done or there's an error
+    while (in_course) {
+        memset(packet, 0, from.get_max_size());  // Erases the content of the buffer
 
-        //bytesMoved = from.receivePacket(packet);
-        bytesMoved = recv(from.getFD(), packet, from.getMaxSize(), 0);
-        //printf("current:\n%s\nbytes: %ld\nloop: %d\n", packet, bytesMoved, loop);
-        if (bytesMoved == -1) {
-            perror("ERROR: in receivePacket() inside deliverContent().\n");
-            inCourse = false;
+        bytes_moved = recv(from.get_fd(), packet, from.get_max_size(), 0);
+        if (bytes_moved == -1) {
+            perror("ERROR: in recv() inside deliver_content().\n");
+            in_course = false;
         }
-        else if (bytesMoved == 0) {
-            inCourse = false;
+        else if (bytes_moved == 0) {
+            in_course = false;
         }
         else {
-            //bytesMoved = to.sendPacket(*packet, bytesMoved);
-            bytesMoved = send(to.getFD(), packet, bytesMoved, 0);
-            if (bytesMoved == -1) {
-                perror("ERROR: in sendPacket() inside deliverContent().\n");
-                inCourse = false;
+            bytes_moved = send(to.get_fd(), packet, bytes_moved, 0);
+            if (bytes_moved == -1) {
+                perror("ERROR: in send() inside deliver_content().\n");
+                in_course = false;
             }
         }
-        loop++;
     }
 }
 
-std::string getRequest(const std::string& header) {
-    // We are only interested in the GET and Host part, so let's get a substr of that two fields
+std::string get_request(const std::string &header) {
+    // We are only interested in the GET and Host part, so let's get a substr() of that two fields
     unsigned long tmp{header.find("Host:")};
     unsigned long end{header.find("\r\n", tmp)};
 
     return header.substr(0, end);
 }
 
-bool hasIllegalContents(const std::string& str, const std::vector<std::string> bannedWords) {
+bool has_illegal_contents(const std::string &str, const std::vector<std::string> banned_words) {
     std::string str_copy{str};
     std::transform(str_copy.begin(), str_copy.end(), str_copy.begin(), ::tolower);
+    // We create a copy of the string and transform it to lowercase, that way the filter is not case sensitive
+    // (the original string is not modified)
 
-    for (unsigned int i{0}; i < bannedWords.size(); ++i) {
-        unsigned long result{str_copy.find(bannedWords.at(i))};
+    for (unsigned int i{0}; i < banned_words.size(); ++i) {
+        unsigned long result{str_copy.find(banned_words.at(i))};
         if (result != std::string::npos)
             return true;
     }
     return false;
 }
 
-bool hasTextToFilter(const std::string& header) {
+bool has_text_to_filter(const std::string &header) {
     // We only want to filter text files
     std::string goal{"Content-Type: text/"};
     unsigned long index{header.find(goal)};
 
     if (index != std::string::npos) {
-        goal = "gzip";  // Compressed files are too much for us
+        goal = "gzip";  // But we're not interested in compressed files
         index = header.find(goal);
         if (index == std::string::npos)
             return true;  // So if it's text and it's not compressed, we can handle it
@@ -288,17 +312,7 @@ bool hasTextToFilter(const std::string& header) {
     return false;
 }
 
-std::string getContent(const std::string& header) {
-    std::string str;
-    unsigned long index{header.find("\r\n\r\n")};
-    if (header.find("html", index + 4) != std::string::npos) {
-        str = header.substr(index + 4);
-    }
-
-    return str;
-}
-
-void preventDoubleURL(std::string& header) {
+void prevent_double_url(std::string &header) {
     std::string goal{"http://"};
     unsigned long first_match{header.find(goal)};
     if (first_match != std::string::npos) {
