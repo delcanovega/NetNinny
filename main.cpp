@@ -6,10 +6,13 @@
 #include <zconf.h>
 #include <cstring>
 #include <vector>
+//#include <boost/algorithm/string.hpp>
+#include <algorithm>
+#include <string>
 
 #include "Socket.h"
 
-const std::vector<std::string> BLACKLIST{"SpongeBob", "Britney Spears", "Paris Hilton", "Norrkoping"};
+const std::vector<std::string> BLACKLIST{"spongebob", "britney spears", "paris hilton", "norrkoping"};
 const std::string BAD_URL{"HTTP/1.1 302 Found\r\nLocation: http://www.ida.liu.se/~TDTS04/labs/2011/ass2/error1.html\r\n\r\n"};
 const std::string BAD_CNT{"HTTP/1.1 302 Found\r\nLocation: http://www.ida.liu.se/~TDTS04/labs/2011/ass2/error2.html\r\n\r\n"};
 
@@ -18,7 +21,7 @@ void execute(Socket& clientSocket);
 bool getHost(const std::string& header, std::string& host);
 std::string handleHeader(const std::string& header, const std::string& host);
 bool hasContent(const std::string& header);
-void deliverContent(const Socket& from, const Socket& to);
+void deliverContent(Socket& from, Socket& to);
 std::string getRequest(const std::string& header);
 bool hasIllegalContents(const std::string& str, const std::vector<std::string> bannedWords);
 bool hasTextToFilter(const std::string& header);
@@ -62,7 +65,7 @@ int main(int argc, const char *argv[]) {
             if (!fork()) {
                 connectionSocket.close();
                 execute(clientSocket);  // Here starts the fun!
-                break;
+                exit(EXIT_SUCCESS);
             }
 
             else {
@@ -88,7 +91,7 @@ void execute(Socket& clientSocket) {
         // If we pick up an illegal URL, then we skip the rest of the process and redirect the error page
         printf("[ NetNinny ]: Bad URL detected, redirecting...\n");
         // FIXME: What next?
-        //clientSocket.sendHeader(BAD_URL);
+        clientSocket.sendHeader(BAD_URL);
     }
 
     // Get the host from the header
@@ -120,31 +123,29 @@ void execute(Socket& clientSocket) {
         printf("ERROR: in execute(). Invalid HTTP header.\n");
         return;
     }
+    // Sometimes the get address is duplicated, lets filter that:
+    //preventDoubleURL(header);
     printf("[ NetNinny ]: Received header from the server:\n%s\n", header.c_str());
 
     // Filter again
     if (hasTextToFilter(header)) {
         std::string data;
         if (serverSocket.receiveTextData(data)) {
+            printf("Data intercepted:\n%s\n", data.c_str());
             if (hasIllegalContents(data, BLACKLIST)) {
                 printf("[ NetNinny ]: Bad content detected, redirecting...\n");
-                clientSocket.sendHeader(BAD_CNT);
-                // FIXME: What next?
-                return;
+                header = BAD_CNT;
             }
-        }
-        else {
-            //TODO: Send the data
+            clientSocket.sendHeader(header);
+            deliverContent(serverSocket, clientSocket);
         }
     }
-
-    // Send to browser
-    clientSocket.sendHeader(header);
-
-    // Has content?
-    if (hasContent(header)) {
+    else {
+        clientSocket.sendHeader(header);
         deliverContent(serverSocket, clientSocket);
     }
+
+    printf("and it's gone\n");
 
     // Close connections
     clientSocket.close();
@@ -217,15 +218,18 @@ bool hasContent(const std::string& header) {
     return false;
 }
 
-void deliverContent(const Socket& from, const Socket& to) {
+void deliverContent(Socket& from, Socket& to) {
     bool inCourse{true};
     long bytesMoved{-1};
-    char* packet = new char[from.getMaxSize()];
+    char packet[from.getMaxSize()];  // * = new char[from.getMaxSize()];
+    int loop{1};
 
     while (inCourse) {
         memset(packet, 0, from.getMaxSize());
 
-        bytesMoved = from.receivePacket(packet);
+        //bytesMoved = from.receivePacket(packet);
+        bytesMoved = recv(from.getFD(), packet, from.getMaxSize(), 0);
+        printf("current:\n%s\nbytes: %ld\nloop: %d\n", packet, bytesMoved, loop);
         if (bytesMoved == -1) {
             perror("ERROR: in receivePacket() inside deliverContent().\n");
             inCourse = false;
@@ -234,12 +238,14 @@ void deliverContent(const Socket& from, const Socket& to) {
             inCourse = false;
         }
         else {
-            bytesMoved = to.sendPacket(packet, bytesMoved);
+            //bytesMoved = to.sendPacket(*packet, bytesMoved);
+            bytesMoved = send(to.getFD(), packet, bytesMoved, 0);
             if (bytesMoved == -1) {
                 perror("ERROR: in sendPacket() inside deliverContent().\n");
                 inCourse = false;
             }
         }
+        loop++;
     }
 }
 
@@ -252,8 +258,11 @@ std::string getRequest(const std::string& header) {
 }
 
 bool hasIllegalContents(const std::string& str, const std::vector<std::string> bannedWords) {
+    std::string str_copy{str};
+    std::transform(str_copy.begin(), str_copy.end(), str_copy.begin(), ::tolower);
+
     for (unsigned int i{0}; i < bannedWords.size(); ++i) {
-        unsigned long result{str.find(bannedWords.at(i))};
+        unsigned long result{str_copy.find(bannedWords.at(i))};
         if (result != std::string::npos)
             return true;
     }
@@ -262,7 +271,7 @@ bool hasIllegalContents(const std::string& str, const std::vector<std::string> b
 
 bool hasTextToFilter(const std::string& header) {
     // We only want to filter text files
-    std::string goal{"Content-Type: text"};
+    std::string goal{"Content-Type: text/"};
     unsigned long index{header.find(goal)};
 
     if (index != std::string::npos) {
@@ -283,4 +292,18 @@ std::string getContent(const std::string& header) {
     }
 
     return str;
+}
+
+void preventDoubleURL(std::string& header) {
+    std::string goal{"http://"};
+    unsigned long first_match{header.find(goal)};
+    if (first_match != std::string::npos) {
+        unsigned long second_match{header.find(goal, first_match + 1)};
+        if (second_match != std::string::npos) {
+            std::string first_part{header.substr(0, second_match)};
+            unsigned long pos{header.find("HTTP")};
+            std::string second_part{header.substr(pos)};
+            header = first_part + second_part;
+        }
+    }
 }

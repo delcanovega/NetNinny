@@ -196,12 +196,12 @@ size_t Socket::getMaxSize() const {
     return this->maxSize;
 }
 
-long Socket::receivePacket(char *packet) const {
-    return (recv(fileDescriptor, packet, getMaxSize(), 0));
+long Socket::receivePacket(char packet) {
+    return (recv(fileDescriptor, &packet, getMaxSize(), 0));
 }
 
-long Socket::sendPacket(char* packet, long numBytes) const {
-    return (send(fileDescriptor, packet, numBytes, 0));
+long Socket::sendPacket(char packet, long numBytes) {
+    return (send(fileDescriptor, &packet, numBytes, 0));
 }
 
 bool Socket::receiveTextData(std::string& data) {
@@ -218,4 +218,8 @@ bool Socket::receiveTextData(std::string& data) {
         data.append(tmp);
     }
     return true;
+}
+
+int Socket::getFD() {
+    return fileDescriptor;
 }

@@ -21,9 +21,10 @@ public:
     bool connect(const char* hostname);
     bool sendHeader(const std::string& header);
     size_t getMaxSize() const;
-    long receivePacket(char* packet) const;
-    long sendPacket(char* packet, long numBytes) const;
+    long receivePacket(char packet);
+    long sendPacket(char packet, long numBytes);
     bool receiveTextData(std::string& data);
+    int getFD();
 
 private:
 
