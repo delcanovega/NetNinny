@@ -12,7 +12,7 @@
 
 #include "Socket.h"
 
-const std::vector<std::string> BLACKLIST{"spongebob", "britney spears", "paris hilton", "norrkoping"};
+const std::vector<std::string> BLACKLIST{"spongebob", "britney spears", "paris hilton", "norrköping", "norrkoping"};
 const std::string BAD_URL{"HTTP/1.1 302 Found\r\nLocation: http://www.ida.liu.se/~TDTS04/labs/2011/ass2/error1.html\r\n\r\n"};
 const std::string BAD_CNT{"HTTP/1.1 302 Found\r\nLocation: http://www.ida.liu.se/~TDTS04/labs/2011/ass2/error2.html\r\n\r\n"};
 
@@ -69,7 +69,7 @@ int main(int argc, const char *argv[]) {
             }
 
             else {
-                sleep(1);
+                //sleep(1);
             }
         }
     }
@@ -82,9 +82,10 @@ void execute(Socket& clientSocket) {
         printf("ERROR: in execute(). Unable to get the HTTP header.\n");
         return;
     }
-    printf("[ NetNinny ]: Received header from the browser:\n%s\n", header.c_str());
+    //printf("[ NetNinny ]: Received header from the browser:\n%s\n", header.c_str());
 
 
+    //preventDoubleURL(header);
     // Filter the GET request
     std::string request{getRequest(header)};
     if (hasIllegalContents(request, BLACKLIST)) {
@@ -109,7 +110,7 @@ void execute(Socket& clientSocket) {
 
     // Modify header
     header = handleHeader(header, host);
-    printf("[ NetNinny ]: Modified header sent to the server:\n%s\n", header.c_str());
+    //printf("[ NetNinny ]: Modified header sent to the server:\n%s\n", header.c_str());
 
     // Send to server
     serverSocket.sendHeader(header);
@@ -120,24 +121,27 @@ void execute(Socket& clientSocket) {
     }
 
     if (!serverSocket.getHeader(header)) {
-        printf("ERROR: in execute(). Invalid HTTP header.\n");
+      //  printf("ERROR: in execute(). Invalid HTTP header.\n");
         return;
     }
     // Sometimes the get address is duplicated, lets filter that:
     //preventDoubleURL(header);
-    printf("[ NetNinny ]: Received header from the server:\n%s\n", header.c_str());
+    //printf("[ NetNinny ]: Received header from the server:\n%s\n", header.c_str());
 
     // Filter again
     if (hasTextToFilter(header)) {
         std::string data;
         if (serverSocket.receiveTextData(data)) {
-            printf("Data intercepted:\n%s\n", data.c_str());
+            //printf("Data intercepted:\n%s\n", data.c_str());
             if (hasIllegalContents(data, BLACKLIST)) {
-                printf("[ NetNinny ]: Bad content detected, redirecting...\n");
+              //  printf("[ NetNinny ]: Bad content detected, redirecting...\n");
                 header = BAD_CNT;
             }
             clientSocket.sendHeader(header);
-            deliverContent(serverSocket, clientSocket);
+            //printf("TEST:\n%s\n", header.c_str());
+            //deliverContent(serverSocket, clientSocket);
+            clientSocket.sendHeader(data);
+
         }
     }
     else {
@@ -145,7 +149,7 @@ void execute(Socket& clientSocket) {
         deliverContent(serverSocket, clientSocket);
     }
 
-    printf("and it's gone\n");
+    //printf("and it's gone\n");
 
     // Close connections
     clientSocket.close();
@@ -229,7 +233,7 @@ void deliverContent(Socket& from, Socket& to) {
 
         //bytesMoved = from.receivePacket(packet);
         bytesMoved = recv(from.getFD(), packet, from.getMaxSize(), 0);
-        printf("current:\n%s\nbytes: %ld\nloop: %d\n", packet, bytesMoved, loop);
+        //printf("current:\n%s\nbytes: %ld\nloop: %d\n", packet, bytesMoved, loop);
         if (bytesMoved == -1) {
             perror("ERROR: in receivePacket() inside deliverContent().\n");
             inCourse = false;
@@ -301,7 +305,7 @@ void preventDoubleURL(std::string& header) {
         unsigned long second_match{header.find(goal, first_match + 1)};
         if (second_match != std::string::npos) {
             std::string first_part{header.substr(0, second_match)};
-            unsigned long pos{header.find("HTTP")};
+            unsigned long pos{header.find("HTTP", second_match + 3)};
             std::string second_part{header.substr(pos)};
             header = first_part + second_part;
         }

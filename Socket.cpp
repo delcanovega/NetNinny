@@ -76,7 +76,7 @@ int Socket::accept() {
     else {
         char readableIP[INET6_ADDRSTRLEN];
         inet_ntop(theirAddr.ss_family, get_in_addr((struct sockaddr *)&theirAddr), readableIP, sizeof readableIP);
-        printf("[ SOCKET ]: Connection established with IP: '%s'\n", readableIP);
+        //printf("[ SOCKET ]: Connection established with IP: '%s'\n", readableIP);
     }
 
     return serverFD;
@@ -172,7 +172,7 @@ bool Socket::connect(const char *hostname) {
 
     char readableIP[INET6_ADDRSTRLEN];
     inet_ntop(p->ai_family, get_in_addr((struct sockaddr*)p->ai_addr), readableIP, sizeof readableIP);
-    printf("[ NetNinny ]: Connection established with the host: '%s'\n", readableIP);
+    //printf("[ NetNinny ]: Connection established with the host: '%s'\n", readableIP);
 
     freeaddrinfo(servInfo);  // To prevent memory leaks
 
